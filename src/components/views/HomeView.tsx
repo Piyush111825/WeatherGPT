@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { OperationalPersona, WeatherTelemetry } from '../../types';
-import { HOURLY_FORECAST, WEEKLY_FORECAST } from '../../data/weatherData';
-import { speakText, stopSpeaking } from '../../utils/weatherUtils';
+import { HOURLY_FORECAST, WEEKLY_FORECAST, DEFAULT_TELEMETRY } from '../../data/weatherData';
+import { speakText, stopSpeaking, getAQIInfo } from '../../utils/weatherUtils';
 import { TabType } from '../BottomNav';
+import { ErrorBoundary } from '../ErrorBoundary';
 import {
   MapPin, Volume2, VolumeX, Thermometer, CloudRain, Wind, Activity,
   Crosshair, Sparkles, Sprout, Siren,
@@ -84,6 +85,8 @@ interface HomeViewProps {
   onOpenCacheManager: () => void;
   onSearchCity: (query: string) => void;
   onGpsLocate: () => void;
+  weatherFxEnabled?: boolean;
+  onToggleWeatherFx?: () => void;
 }
 
 const AnimatedCounter = ({ value, suffix = '' }: { value: number, suffix?: string }) => {
@@ -158,6 +161,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigateTab,
   onSearchCity,
   onGpsLocate,
+  weatherFxEnabled = false,
+  onToggleWeatherFx,
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -174,30 +179,38 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const currentHourlyForecast = telemetry.hourlyData || HOURLY_FORECAST;
-  const currentWeeklyForecast = telemetry.dailyData || WEEKLY_FORECAST;
+  const safeTelemetry = telemetry || DEFAULT_TELEMETRY;
+  const currentHourlyForecast = safeTelemetry.hourlyData && safeTelemetry.hourlyData.length > 0 ? safeTelemetry.hourlyData : HOURLY_FORECAST;
+  const currentWeeklyForecast = safeTelemetry.dailyData && safeTelemetry.dailyData.length > 0 ? safeTelemetry.dailyData : WEEKLY_FORECAST;
 
-  const activeHourly = currentHourlyForecast[selectedHourIndex] || currentHourlyForecast[0];
+  const activeHourly = currentHourlyForecast[selectedHourIndex] || currentHourlyForecast[0] || { temp: 25, rainProb: 10, windSpeed: 12, condition: 'Clear', hour: '12 PM' };
   const displayTelemetry = {
-    temp: selectedHourIndex === 0 ? telemetry.temp : activeHourly.temp,
-    rainProb: selectedHourIndex === 0 ? telemetry.rainProb : activeHourly.rainProb,
-    aqi: telemetry.aqi, 
-    windSpeed: selectedHourIndex === 0 ? telemetry.windSpeed : activeHourly.windSpeed,
+    temp: selectedHourIndex === 0 ? (safeTelemetry.temp ?? 25) : (activeHourly.temp ?? 25),
+    rainProb: selectedHourIndex === 0 ? (safeTelemetry.rainProb ?? 0) : (activeHourly.rainProb ?? 0),
+    aqi: typeof safeTelemetry.aqi === 'number' ? safeTelemetry.aqi : 50, 
+    windSpeed: selectedHourIndex === 0 ? (safeTelemetry.windSpeed ?? 10) : (activeHourly.windSpeed ?? 10),
+    humidity: typeof safeTelemetry.humidity === 'number' ? safeTelemetry.humidity : 60,
   };
+
+  const aqiInfo = getAQIInfo(displayTelemetry.aqi, safeTelemetry.condition || 'Clear');
 
   const currentMonth = new Date().getMonth() + 1;
   const season = getSeason(currentMonth);
-  const config = SEASON_CONFIG[season];
+  const config = SEASON_CONFIG[season] || SEASON_CONFIG['Spring'];
 
   const handleToggleAudio = () => {
-    if (isAudioPlaying) {
-      stopSpeaking();
-      setIsAudioPlaying(false);
-    } else {
-      const text = `${config.audio} Live briefing for ${telemetry.cityName}. The current condition is ${telemetry.condition} with a temperature of ${displayTelemetry.temp} degrees, and a ${displayTelemetry.rainProb} percent chance of rain.`;
-      speakText(text);
-      setIsAudioPlaying(true);
-      setTimeout(() => setIsAudioPlaying(false), 9000);
+    try {
+      if (isAudioPlaying) {
+        stopSpeaking();
+        setIsAudioPlaying(false);
+      } else {
+        const text = `${config.audio} Live briefing for ${safeTelemetry.cityName || 'your region'}. The current condition is ${safeTelemetry.condition || 'Clear'} with a temperature of ${displayTelemetry.temp} degrees, and a ${displayTelemetry.rainProb} percent chance of rain.`;
+        speakText(text);
+        setIsAudioPlaying(true);
+        setTimeout(() => setIsAudioPlaying(false), 9000);
+      }
+    } catch (e) {
+      console.warn('Audio playback error in HomeView:', e);
     }
   };
 
@@ -210,6 +223,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const cities = ['New Delhi', 'Mumbai', 'London', 'Kolkata'];
 
   const renderWeatherBackdrop = (condition: string) => {
+    if (!weatherFxEnabled) return null;
+
     const lower = condition.toLowerCase();
     const isRain = lower.includes('rain') || lower.includes('drizzle') || lower.includes('storm') || lower.includes('shower');
     const isCloudy = lower.includes('cloud') || lower.includes('overcast') || lower.includes('fog');
@@ -256,8 +271,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
     <div className="space-y-6 pb-28 relative">
       
       {/* 1. Hero & Live Visuals */}
-      <section className={`relative overflow-hidden rounded-3xl bg-zinc-900 text-white p-6 sm:p-8 shadow-xl border ${config.border} transition-colors duration-1000`}>
-        <div className={`absolute inset-0 bg-gradient-to-br ${config.gradient} opacity-60 z-0`} />
+      <section className={`relative overflow-hidden rounded-3xl ${weatherFxEnabled ? 'bg-zinc-900 shadow-xl' : 'bg-zinc-900/95 shadow-md'} text-white p-6 sm:p-8 border ${weatherFxEnabled ? config.border : 'border-zinc-800'} transition-all duration-700`}>
+        {weatherFxEnabled && <div className={`absolute inset-0 bg-gradient-to-br ${config.gradient} opacity-60 z-0`} />}
         {renderWeatherBackdrop(telemetry.condition)}
 
         <div className="relative z-10">
@@ -275,7 +290,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </span>
           </div>
 
-          <div className="mb-6 flex justify-between items-end">
+          <div className="mb-6 flex justify-between items-end gap-3 flex-wrap sm:flex-nowrap">
             <div className="flex items-center gap-6">
               <div className="relative">
                 <div className="absolute inset-0 bg-white/20 blur-2xl rounded-full animate-pulse" />
@@ -289,27 +304,43 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <p className="text-zinc-400 mt-1">{telemetry.coordinates} • {telemetry.condition}</p>
               </div>
             </div>
-            <button
-              onClick={handleToggleAudio}
-              className={`flex h-10 px-4 shrink-0 items-center gap-2 justify-center rounded-full transition-colors text-xs font-bold ${
-                isAudioPlaying 
-                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' 
-                  : 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
-              }`}
-            >
-              {isAudioPlaying ? <VolumeX className="h-4 w-4 animate-pulse" /> : <Volume2 className="h-4 w-4" />}
-              {isAudioPlaying ? 'Stop Audio' : '🔊 Listen to Audio Briefing'}
-            </button>
+            <div className="flex items-center gap-2">
+              {onToggleWeatherFx && (
+                <button
+                  onClick={onToggleWeatherFx}
+                  title={weatherFxEnabled ? 'Disable Live Weather FX' : 'Enable Live Weather FX'}
+                  className={`flex h-10 px-3.5 shrink-0 items-center gap-1.5 justify-center rounded-full transition-all text-xs font-bold ${
+                    weatherFxEnabled
+                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 hover:bg-blue-500/30'
+                      : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-750 hover:text-zinc-200'
+                  }`}
+                >
+                  <Sparkles className={`h-3.5 w-3.5 ${weatherFxEnabled ? 'text-blue-400 animate-pulse' : 'text-zinc-500'}`} />
+                  <span>{weatherFxEnabled ? 'Weather FX: ON' : 'FX: OFF'}</span>
+                </button>
+              )}
+              <button
+                onClick={handleToggleAudio}
+                className={`flex h-10 px-4 shrink-0 items-center gap-2 justify-center rounded-full transition-colors text-xs font-bold ${
+                  isAudioPlaying 
+                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' 
+                    : 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
+                }`}
+              >
+                {isAudioPlaying ? <VolumeX className="h-4 w-4 animate-pulse" /> : <Volume2 className="h-4 w-4" />}
+                {isAudioPlaying ? 'Stop Audio' : '🔊 Audio Briefing'}
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
             <div className="bg-zinc-800/50 backdrop-blur-sm border border-zinc-700/50 rounded-2xl p-4 group hover:bg-zinc-800/80 transition-colors">
               <div className="flex justify-between items-center mb-2">
                 <Thermometer className="h-5 w-5 text-orange-400" />
                 <span className="text-[10px] font-black text-orange-500/50 uppercase">Live</span>
               </div>
               <span className="text-xs font-bold text-zinc-400 uppercase block mb-1">Temperature</span>
-              <div className="text-3xl font-black text-white">
+              <div className="text-2xl sm:text-3xl font-black text-white">
                  <AnimatedCounter value={displayTelemetry.temp} suffix="°C" />
               </div>
               <MetricProgress value={displayTelemetry.temp} max={50} colorClass="bg-orange-500" />
@@ -320,21 +351,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[10px] font-black text-blue-500/50 uppercase">Risk</span>
               </div>
               <span className="text-xs font-bold text-zinc-400 uppercase block mb-1">Rain Prob</span>
-              <div className="text-3xl font-black text-blue-400">
+              <div className="text-2xl sm:text-3xl font-black text-blue-400">
                  <AnimatedCounter value={displayTelemetry.rainProb} suffix="%" />
               </div>
               <MetricProgress value={displayTelemetry.rainProb} max={100} colorClass="bg-blue-500" type="liquid" />
             </div>
             <div className="bg-zinc-800/50 backdrop-blur-sm border border-zinc-700/50 rounded-2xl p-4 group hover:bg-zinc-800/80 transition-colors">
               <div className="flex justify-between items-center mb-2">
-                <Activity className="h-5 w-5 text-emerald-400" />
-                <span className="text-[10px] font-black text-emerald-500/50 uppercase">Health</span>
+                <Activity className={`h-5 w-5 ${aqiInfo.textClass}`} />
+                <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-zinc-700/50 text-zinc-300">{aqiInfo.status}</span>
               </div>
               <span className="text-xs font-bold text-zinc-400 uppercase block mb-1">AQI (Live)</span>
-              <div className="text-3xl font-black text-emerald-400">
-                 <AnimatedCounter value={displayTelemetry.aqi} />
+              <div className={`text-2xl sm:text-3xl font-black ${aqiInfo.textClass}`}>
+                 <AnimatedCounter value={aqiInfo.val} />
               </div>
-              <MetricProgress value={displayTelemetry.aqi} max={300} colorClass="bg-emerald-500" type="aqi" />
+              <MetricProgress value={aqiInfo.val} max={300} colorClass={aqiInfo.barColorClass} type="aqi" />
             </div>
             <div className="bg-zinc-800/50 backdrop-blur-sm border border-zinc-700/50 rounded-2xl p-4 group hover:bg-zinc-800/80 transition-colors">
               <div className="flex justify-between items-center mb-2">
@@ -342,10 +373,23 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[10px] font-black text-purple-500/50 uppercase">Velocity</span>
               </div>
               <span className="text-xs font-bold text-zinc-400 uppercase block mb-1">Wind Speed</span>
-              <div className="text-3xl font-black text-white">
+              <div className="text-2xl sm:text-3xl font-black text-white">
                  <AnimatedCounter value={displayTelemetry.windSpeed} suffix=" km/h" />
               </div>
               <MetricProgress value={displayTelemetry.windSpeed} max={100} colorClass="bg-purple-500" />
+            </div>
+            <div className="bg-zinc-800/50 backdrop-blur-sm border border-zinc-700/50 rounded-2xl p-4 group hover:bg-zinc-800/80 transition-colors col-span-2 md:col-span-1">
+              <div className="flex justify-between items-center mb-2">
+                <Droplets className="h-5 w-5 text-cyan-400" />
+                <span className="text-[10px] font-black text-cyan-500/50 uppercase">
+                  {displayTelemetry.humidity > 70 ? 'High' : displayTelemetry.humidity < 35 ? 'Low' : 'Optimal'}
+                </span>
+              </div>
+              <span className="text-xs font-bold text-zinc-400 uppercase block mb-1">Humidity</span>
+              <div className="text-2xl sm:text-3xl font-black text-cyan-400">
+                 <AnimatedCounter value={displayTelemetry.humidity} suffix="%" />
+              </div>
+              <MetricProgress value={displayTelemetry.humidity} max={100} colorClass="bg-cyan-500" type="liquid" />
             </div>
           </div>
         </div>
@@ -512,17 +556,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="flex justify-between items-start mb-4">
                <div>
                  <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-400 block mb-1">Air Quality & Health</span>
-                 <h3 className="text-3xl font-black text-emerald-500">{telemetry.aqi}</h3>
-                 <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">{telemetry.aqiStatus}</span>
+                 <h3 className={`text-3xl font-black ${aqiInfo.textClass}`}>{aqiInfo.val}</h3>
+                 <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full inline-block mt-1 ${aqiInfo.badgeClass}`}>{aqiInfo.status}</span>
                </div>
                <div className="text-right">
                  <span className="text-xs text-zinc-500 block">Primary Pollutant</span>
-                 <span className="font-bold text-zinc-700 dark:text-zinc-300">PM2.5</span>
+                 <span className="font-bold text-zinc-700 dark:text-zinc-300">
+                   {telemetry.pm25 != null ? `PM2.5: ${telemetry.pm25} µg/m³` : telemetry.pm10 != null ? `PM10: ${telemetry.pm10} µg/m³` : 'PM2.5'}
+                 </span>
                </div>
             </div>
             
             <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2.5 mb-6 overflow-hidden">
-               <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${(telemetry.aqi / 300) * 100}%` }}></div>
+               <div className={`${aqiInfo.barColorClass} h-2.5 rounded-full transition-all duration-500`} style={{ width: `${Math.min(100, Math.max(5, (aqiInfo.val / 300) * 100))}%` }}></div>
             </div>
           </div>
           
@@ -533,10 +579,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                <button onClick={() => setActiveHealthAdvice('vent')} className={`flex-1 p-2 rounded-xl border text-[10px] font-bold transition-all ${activeHealthAdvice === 'vent' ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 border-transparent' : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800'}`}>🪟 Ventilation</button>
                <button onClick={() => setActiveHealthAdvice('sensitive')} className={`flex-1 p-2 rounded-xl border text-[10px] font-bold transition-all ${activeHealthAdvice === 'sensitive' ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 border-transparent' : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800'}`}>👶 Sensitive Groups</button>
              </div>
-             <p className="text-xs text-zinc-600 dark:text-zinc-400 pt-1">
-               {activeHealthAdvice === 'outdoor' && "Perfect conditions for intense outdoor exertion."}
-               {activeHealthAdvice === 'vent' && "Excellent time to open windows and refresh indoor air."}
-               {activeHealthAdvice === 'sensitive' && "No special precautions needed for sensitive groups."}
+             <p className="text-xs text-zinc-600 dark:text-zinc-400 pt-1 leading-relaxed">
+               {activeHealthAdvice === 'outdoor' && aqiInfo.advice.outdoor}
+               {activeHealthAdvice === 'vent' && aqiInfo.advice.vent}
+               {activeHealthAdvice === 'sensitive' && aqiInfo.advice.sensitive}
              </p>
           </div>
         </div>

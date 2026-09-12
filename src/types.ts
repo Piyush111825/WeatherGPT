@@ -14,6 +14,8 @@ export interface WeatherTelemetry {
   windDirection: string;
   aqi: number;
   aqiStatus: string;
+  pm25?: number;
+  pm10?: number;
   uvIndex: number;
   uvStatus: string;
   confidence: number;

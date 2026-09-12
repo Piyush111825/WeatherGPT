@@ -7,10 +7,11 @@ import {
   Tractor,
   Radio,
   Leaf,
+  Sparkles,
   Bot,
 } from 'lucide-react';
 
-export type TabType = 'home' | 'chat' | 'map' | 'risk' | 'farmer' | 'disaster' | 'twin';
+export type TabType = 'home' | 'chat' | 'map' | 'risk' | 'farmer' | 'disaster' | 'twin' | 'twinview';
 
 interface BottomNavProps {
   activeTab: TabType;
@@ -30,7 +31,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     { id: 'risk', label: 'Risk', icon: AlertTriangle },
     { id: 'farmer', label: 'Farmer', icon: Tractor },
     { id: 'disaster', label: 'Disaster', icon: Radio },
-    { id: 'twin', label: 'Twin', icon: Leaf },
+    { id: 'twinview', label: 'TwinView', icon: Sparkles },
   ];
 
   return (

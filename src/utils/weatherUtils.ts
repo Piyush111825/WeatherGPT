@@ -139,3 +139,128 @@ export function evaluatePlan(query: string, telemetry: WeatherTelemetry): PlanEv
     bestTimeWindow: 'Safest activity window: Early morning through early afternoon',
   };
 }
+
+export interface AQIInfo {
+  val: number;
+  status: string;
+  category: 'good' | 'moderate' | 'sensitive' | 'unhealthy' | 'very-unhealthy' | 'hazardous';
+  color: string;
+  textClass: string;
+  badgeClass: string;
+  barColorClass: string;
+  advice: {
+    outdoor: string;
+    vent: string;
+    sensitive: string;
+  };
+}
+
+export function getAQIInfo(aqiInput: number | undefined | null, condition?: string): AQIInfo {
+  let val = aqiInput;
+
+  // Graceful fallback if undefined or NaN
+  if (val === undefined || val === null || isNaN(val)) {
+    const cond = (condition || '').toLowerCase();
+    if (cond.includes('fog') || cond.includes('haze') || cond.includes('smoke')) {
+      val = 135;
+    } else if (cond.includes('rain') || cond.includes('storm')) {
+      val = 32;
+    } else {
+      val = 65;
+    }
+  }
+
+  val = Math.round(Math.max(0, val));
+
+  if (val <= 50) {
+    return {
+      val,
+      status: 'Good',
+      category: 'good',
+      color: 'emerald',
+      textClass: 'text-emerald-500 dark:text-emerald-400',
+      badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
+      barColorClass: 'bg-emerald-500',
+      advice: {
+        outdoor: 'Air quality is ideal for outdoor sports, cycling, and vigorous cardio.',
+        vent: 'Safe to open windows and let clean fresh outdoor air circulate freely.',
+        sensitive: 'No special health precautions required for children or sensitive individuals.',
+      },
+    };
+  } else if (val <= 100) {
+    return {
+      val,
+      status: 'Moderate',
+      category: 'moderate',
+      color: 'yellow',
+      textClass: 'text-yellow-500 dark:text-yellow-400',
+      badgeClass: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300',
+      barColorClass: 'bg-yellow-500',
+      advice: {
+        outdoor: 'Acceptable for most outdoor activities; stay hydrated and take standard rest breaks.',
+        vent: 'Indoor ventilation is safe during moderate daylight breeze hours.',
+        sensitive: 'Unusually sensitive individuals should consider reducing prolonged heavy outdoor exertion.',
+      },
+    };
+  } else if (val <= 150) {
+    return {
+      val,
+      status: 'Unhealthy for Sensitive Groups',
+      category: 'sensitive',
+      color: 'orange',
+      textClass: 'text-orange-500 dark:text-orange-400',
+      badgeClass: 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300',
+      barColorClass: 'bg-orange-500',
+      advice: {
+        outdoor: 'Reduce prolonged intense workouts outdoors; schedule heavy training indoors or early morning.',
+        vent: 'Keep windows closed during peak traffic and agricultural burning hours.',
+        sensitive: 'Children, seniors, and people with asthma should limit continuous outdoor activities.',
+      },
+    };
+  } else if (val <= 200) {
+    return {
+      val,
+      status: 'Unhealthy',
+      category: 'unhealthy',
+      color: 'red',
+      textClass: 'text-red-500 dark:text-red-400',
+      badgeClass: 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300',
+      barColorClass: 'bg-red-500',
+      advice: {
+        outdoor: 'Avoid prolonged outdoor exertion; shift workouts and training to indoor facilities.',
+        vent: 'Keep windows closed and run indoor air purifiers or clean HEPA filters.',
+        sensitive: 'Sensitive groups should avoid all physical outdoor exertion and wear N95 filtration masks if traveling.',
+      },
+    };
+  } else if (val <= 300) {
+    return {
+      val,
+      status: 'Very Unhealthy',
+      category: 'very-unhealthy',
+      color: 'purple',
+      textClass: 'text-purple-500 dark:text-purple-400',
+      badgeClass: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300',
+      barColorClass: 'bg-purple-500',
+      advice: {
+        outdoor: 'Health alert: Everyone should avoid outdoor cardio, jogging, and strenuous outdoor work.',
+        vent: 'Keep all windows and exterior doors tightly sealed; operate air filtration continuously.',
+        sensitive: 'High health risk: Everyone should remain indoors; sensitive groups must stay in clean air spaces.',
+      },
+    };
+  } else {
+    return {
+      val,
+      status: 'Hazardous',
+      category: 'hazardous',
+      color: 'rose',
+      textClass: 'text-rose-600 dark:text-rose-400',
+      badgeClass: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300',
+      barColorClass: 'bg-rose-600',
+      advice: {
+        outdoor: 'Emergency conditions: All outdoor physical activity is strictly discouraged.',
+        vent: 'Seal entry points and do not open windows under any circumstances.',
+        sensitive: 'Critical risk: Everyone must stay indoors with air purification and minimal physical exertion.',
+      },
+    };
+  }
+}

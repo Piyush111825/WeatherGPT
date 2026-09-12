@@ -10,7 +10,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
-  MapPin
+  MapPin,
+  Sparkles
 } from 'lucide-react';
 import { WeatherTelemetry } from '../types';
 import { GLOBAL_CITIES } from '../data/weatherData';
@@ -25,6 +26,8 @@ interface NavbarProps {
   audioEnabled: boolean;
   onToggleAudio: () => void;
   onGpsLocate: () => void;
+  weatherFxEnabled?: boolean;
+  onToggleWeatherFx?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,6 +39,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   audioEnabled,
   onToggleAudio,
   onGpsLocate,
+  weatherFxEnabled = false,
+  onToggleWeatherFx,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -184,8 +189,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Right Action Icons (Theme, Audio) */}
+          {/* Right Action Icons (Weather FX, Audio, Theme) */}
           <div className="flex items-center gap-1.5">
+            {onToggleWeatherFx && (
+              <button
+                id="weather-fx-toggle-btn"
+                onClick={onToggleWeatherFx}
+                title={weatherFxEnabled ? 'Weather Particle FX: ON (Click to disable)' : 'Weather Particle FX: OFF (Click to enable)'}
+                className={`flex h-8 w-8 items-center justify-center rounded-full border transition-all ${
+                  weatherFxEnabled
+                    ? 'border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-950/70 dark:text-blue-300 shadow-xs'
+                    : 'border-zinc-200 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300'
+                }`}
+              >
+                <Sparkles className={`h-4 w-4 ${weatherFxEnabled ? 'text-blue-600 dark:text-blue-400 animate-pulse' : ''}`} />
+              </button>
+            )}
             <button
               id="audio-toggle-btn"
               onClick={onToggleAudio}

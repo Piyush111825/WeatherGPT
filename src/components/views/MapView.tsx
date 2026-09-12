@@ -21,7 +21,7 @@ L.Icon.Default.mergeOptions({
 
 interface MapViewProps {
   telemetry: WeatherTelemetry;
-  onSelectStationLocation: (city: string) => void;
+  onSelectStationLocation: (city: string, coords?: { lat: number; lng: number }) => void;
 }
 
 // Map Event component for handling clicks
@@ -197,25 +197,24 @@ export const MapView: React.FC<MapViewProps> = ({
     return () => clearInterval(interval);
   }, [isPlaying, timeLabels.length]);
 
-  // Helper for dynamic data based on coords
-  const getDynamicData = (lat: number, lng: number) => {
-    const seed = Math.abs(Math.sin(lat * 12.9898 + lng * 78.233) * 43758.5453);
-    const factor = (s: number) => (Math.sin(seed * s) * 2);
-    
-    return {
-      temp: (telemetry.temp + factor(1)).toFixed(1),
-      rainProb: Math.min(100, Math.max(0, Math.round(telemetry.rainProb + factor(2) * 5))),
-      windSpeed: Math.max(0, parseFloat((telemetry.windSpeed + factor(3)).toFixed(1))),
-      humidity: Math.min(100, Math.max(0, telemetry.humidity + Math.round(factor(4) * 2))),
-      pressure: 950 + Math.round(seed % 50),
-      soilMoisture: 30 + Math.round(seed % 40),
-      pm25: (20 + (seed % 30)).toFixed(1),
-      pm10: (25 + (seed % 35)).toFixed(1),
-      windDirection: Math.round(seed % 360)
-    };
-  };
+  // Derive telemetry metrics strictly synchronized with active global telemetry
+  const windDirDegree = typeof telemetry.windDirection === 'string' 
+    ? (telemetry.windDirection === 'N' ? 0 : telemetry.windDirection === 'NE' ? 45 : telemetry.windDirection === 'E' ? 90 : telemetry.windDirection === 'SE' ? 135 : telemetry.windDirection === 'S' ? 180 : telemetry.windDirection === 'SW' ? 225 : telemetry.windDirection === 'W' ? 270 : telemetry.windDirection === 'NW' ? 315 : 220)
+    : (telemetry.windDirection || 220);
 
-  const currentMetrics = getDynamicData(selectedCoords[0], selectedCoords[1]);
+  const currentMetrics = {
+    temp: typeof telemetry.temp === 'number' ? telemetry.temp.toFixed(1) : String(telemetry.temp),
+    rainProb: telemetry.rainProb,
+    windSpeed: typeof telemetry.windSpeed === 'number' ? telemetry.windSpeed.toFixed(1) : String(telemetry.windSpeed),
+    humidity: telemetry.humidity,
+    pressure: telemetry.surfacePressure || 1012,
+    soilMoisture: telemetry.rootSoilMoisture || 42,
+    aqi: telemetry.aqi,
+    aqiStatus: telemetry.aqiStatus,
+    pm25: telemetry.pm25 != null ? telemetry.pm25.toFixed(1) : '18.4',
+    pm10: telemetry.pm10 != null ? telemetry.pm10.toFixed(1) : '32.1',
+    windDirection: windDirDegree
+  };
 
   // Parse coords safely
   useEffect(() => {
@@ -264,15 +263,17 @@ export const MapView: React.FC<MapViewProps> = ({
           
           setSelectedStation(metadata.name);
           setPlaceMetadata(metadata);
-          onSelectStationLocation(metadata.city || metadata.name);
+          onSelectStationLocation(metadata.city || metadata.name, { lat, lng });
         } else {
           setSelectedStation('Custom Location');
           setPlaceMetadata(null);
+          onSelectStationLocation('Custom Location', { lat, lng });
         }
       });
     } else {
       setSelectedStation('Custom Location');
       setPlaceMetadata(null);
+      onSelectStationLocation('Custom Location', { lat, lng });
     }
   };
 
@@ -280,8 +281,8 @@ export const MapView: React.FC<MapViewProps> = ({
     setSelectedCoords([metadata.coords.lat, metadata.coords.lng]);
     setSelectedStation(metadata.name);
     setPlaceMetadata(metadata);
-    // Sync with top level state if needed
-    onSelectStationLocation(metadata.city || metadata.name);
+    // Sync with top level state
+    onSelectStationLocation(metadata.city || metadata.name, { lat: metadata.coords.lat, lng: metadata.coords.lng });
   };
 
   const [rainViewerTime, setRainViewerTime] = useState<number | null>(null);
@@ -397,7 +398,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 <button 
                   className="mt-3 w-full bg-blue-600 text-white text-[10px] py-1.5 rounded-md font-bold hover:bg-blue-700 transition-colors"
                   onClick={() => {
-                    onSelectStationLocation(selectedStation);
+                    onSelectStationLocation(selectedStation, { lat: selectedCoords[0], lng: selectedCoords[1] });
                   }}
                 >
                   Focus This Station

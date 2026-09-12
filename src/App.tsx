@@ -13,11 +13,12 @@ import { MapView } from './components/views/MapView';
 import { RiskView } from './components/views/RiskView';
 import { FarmerView } from './components/views/FarmerView';
 import { DisasterView } from './components/views/DisasterView';
-import { TwinView } from './components/views/TwinView';
+import { IndigenousTwinView } from './components/views/IndigenousTwinView';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { DEFAULT_TELEMETRY } from './data/weatherData';
 import { OperationalPersona, WeatherTelemetry } from './types';
-import { speakText, stopSpeaking } from './utils/weatherUtils';
-import { fetchWeatherData, reverseGeocode, getWeatherCondition, getWindDirection, handleSearchQuery } from './utils/weatherApi';
+import { speakText, stopSpeaking, getAQIInfo } from './utils/weatherUtils';
+import { fetchWeatherData, fetchAirQualityData, calculateSynopticAQI, extractCurrentRainProbability, reverseGeocode, getWeatherCondition, getWindDirection, handleSearchQuery } from './utils/weatherApi';
 import { getCurrentPositionGPS } from './utils/geoUtils';
 
 export default function App() {
@@ -42,20 +43,31 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // Telemetry state
+  // Telemetry state with robust fallback parsing
   const [telemetry, setTelemetry] = useState<WeatherTelemetry>(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('weathergpt_telemetry');
-        if (saved) return JSON.parse(saved);
-      } catch(e) {}
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object') {
+            return { ...DEFAULT_TELEMETRY, ...parsed };
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse cached telemetry, using default:', e);
+      }
     }
     return DEFAULT_TELEMETRY;
   });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('weathergpt_telemetry', JSON.stringify(telemetry));
+      try {
+        localStorage.setItem('weathergpt_telemetry', JSON.stringify(telemetry));
+      } catch (e) {
+        console.warn('Failed to persist telemetry to localStorage:', e);
+      }
     }
   }, [telemetry]);
 
@@ -64,6 +76,26 @@ export default function App() {
 
   // Active Tab state
   const [activeTab, setActiveTab] = useState<TabType>('home');
+
+  // Weather Animation FX state (defaults to false for clean static card surface)
+  const [weatherFxEnabled, setWeatherFxEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('weathergpt_weather_fx');
+      return saved === 'true'; // Defaults to false
+    }
+    return false;
+  });
+
+  const handleToggleWeatherFx = () => {
+    setWeatherFxEnabled(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('weathergpt_weather_fx', String(next));
+      }
+      showToast(next ? 'Live weather particle animations enabled' : 'Clean static background enabled');
+      return next;
+    });
+  };
 
   // Audio broadcast state
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -91,7 +123,7 @@ export default function App() {
       stopSpeaking();
       setIsAudioPlaying(false);
     } else {
-      const text = `Broadcasting WeatherGPT synoptic telemetry for ${telemetry.cityName}. Current surface conditions are ${telemetry.condition}, ${telemetry.temp} degrees Celsius, feels like ${telemetry.feelsLike} degrees. Rain probability is ${telemetry.rainProb} percent. Surface wind is at ${telemetry.windSpeed} kilometers per hour from the south-west. Recommended action: keep rain gear ready and monitor evening commute channels.`;
+      const text = `Broadcasting WeatherGPT synoptic telemetry for ${telemetry.cityName}. Current surface conditions are ${telemetry.condition}, ${telemetry.temp} degrees Celsius, feels like ${telemetry.feelsLike} degrees. Rain probability is ${telemetry.rainProb} percent. Surface wind is at ${telemetry.windSpeed} kilometers per hour from the ${telemetry.windDirection}. Air Quality Index is ${telemetry.aqi} (${telemetry.aqiStatus}).`;
       const ok = speakText(text);
       if (ok) {
         setIsAudioPlaying(true);
@@ -105,10 +137,41 @@ export default function App() {
   // City Search handler
   const fetchAndSetWeather = async (lat: number, lon: number, locationName: string) => {
     try {
-      const data = await fetchWeatherData(lat, lon);
+      const [weatherRes, airRes] = await Promise.allSettled([
+        fetchWeatherData(lat, lon),
+        fetchAirQualityData(lat, lon)
+      ]);
+
+      const data = weatherRes.status === 'fulfilled' ? weatherRes.value : null;
+      const airData = airRes.status === 'fulfilled' ? airRes.value : null;
+
       if (data && data.current) {
         const current = data.current;
         
+        const rainProb = extractCurrentRainProbability(data);
+
+        const condition = getWeatherCondition(current.weather_code);
+
+        // Real-time AQI and PM2.5 calculation with localized synoptic approximation fallback
+        let aqiVal = airData?.current?.us_aqi;
+        let pm25Val = airData?.current?.pm2_5;
+        let pm10Val = airData?.current?.pm10;
+
+        if (aqiVal === undefined || aqiVal === null || isNaN(aqiVal)) {
+          const synoptic = calculateSynopticAQI(
+            lat,
+            lon,
+            current.temperature_2m,
+            current.relative_humidity_2m,
+            condition
+          );
+          aqiVal = synoptic.aqi;
+          if (pm25Val === undefined || pm25Val === null || isNaN(pm25Val)) pm25Val = synoptic.pm25;
+          if (pm10Val === undefined || pm10Val === null || isNaN(pm10Val)) pm10Val = synoptic.pm10;
+        }
+
+        const aqiInfo = getAQIInfo(aqiVal, condition);
+
         const parsedHourly = data.hourly ? Array.from({ length: 24 }).map((_, i) => {
           const dt = new Date(data.hourly.time[i]);
           return {
@@ -142,10 +205,14 @@ export default function App() {
           temp: Math.round(current.temperature_2m),
           feelsLike: Math.round(current.apparent_temperature),
           humidity: current.relative_humidity_2m,
-          rainProb: current.precipitation > 0 ? 100 : (data.hourly?.precipitation_probability?.[0] || 0),
+          rainProb: rainProb,
           windSpeed: current.wind_speed_10m,
           windDirection: getWindDirection(current.wind_direction_10m),
-          condition: getWeatherCondition(current.weather_code),
+          condition: condition,
+          aqi: aqiInfo.val,
+          aqiStatus: aqiInfo.status,
+          pm25: pm25Val != null ? Math.round(pm25Val * 10) / 10 : undefined,
+          pm10: pm10Val != null ? Math.round(pm10Val * 10) / 10 : undefined,
           hourlyData: parsedHourly,
           dailyData: parsedDaily,
           timestamp: new Date().toISOString()
@@ -196,52 +263,90 @@ export default function App() {
         onGpsLocate={handleGpsLocate}
         onToggleAudio={handleToggleAudio}
         audioEnabled={isAudioPlaying}
+        weatherFxEnabled={weatherFxEnabled}
+        onToggleWeatherFx={handleToggleWeatherFx}
       />
 
-      {/* Main Content Area */}
+      {/* Main Content Area Protected by ErrorBoundary */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-20">
-        {/* Render Active View Based on Selected Tab */}
-        {activeTab === 'home' && (
-          <HomeView
-            telemetry={telemetry}
-            persona={persona}
-            onSelectPersona={setPersona}
-            onNavigateTab={setActiveTab}
-            onOpenHowDoWeKnow={() => setIsHowDoWeKnowOpen(true)}
-            onOpenShareSnapshot={() => setIsShareSnapshotOpen(true)}
-            onOpenWebhooks={() => setIsWebhooksOpen(true)}
-            onOpenCacheManager={() => setIsCacheManagerOpen(true)}
-            onSearchCity={handleSearchCity}
-            onGpsLocate={handleGpsLocate}
-          />
-        )}
+        <ErrorBoundary
+          viewName="Dashboard Content"
+          onReset={() => setTelemetry(DEFAULT_TELEMETRY)}
+        >
+          {/* Render Active View Based on Selected Tab with Isolated Error Boundaries */}
+          {activeTab === 'home' && (
+            <ErrorBoundary viewName="Home" onReset={() => setTelemetry({ ...telemetry })}>
+              <HomeView
+                telemetry={telemetry}
+                persona={persona}
+                onSelectPersona={setPersona}
+                onNavigateTab={setActiveTab}
+                onOpenHowDoWeKnow={() => setIsHowDoWeKnowOpen(true)}
+                onOpenShareSnapshot={() => setIsShareSnapshotOpen(true)}
+                onOpenWebhooks={() => setIsWebhooksOpen(true)}
+                onOpenCacheManager={() => setIsCacheManagerOpen(true)}
+                onSearchCity={handleSearchCity}
+                onGpsLocate={handleGpsLocate}
+                weatherFxEnabled={weatherFxEnabled}
+                onToggleWeatherFx={handleToggleWeatherFx}
+              />
+            </ErrorBoundary>
+          )}
 
-        {activeTab === 'chat' && (
-          <ChatView
-            telemetry={telemetry}
-            persona={persona}
-            onSelectPersona={setPersona}
-            onOpenHowDoWeKnow={() => setIsHowDoWeKnowOpen(true)}
-          />
-        )}
+          {activeTab === 'chat' && (
+            <ErrorBoundary viewName="WeatherGPT Advisory Chat">
+              <ChatView
+                telemetry={telemetry}
+                persona={persona}
+                onSelectPersona={setPersona}
+                onOpenHowDoWeKnow={() => setIsHowDoWeKnowOpen(true)}
+              />
+            </ErrorBoundary>
+          )}
 
-        {activeTab === 'map' && (
-          <MapView
-            telemetry={telemetry}
-            onSelectStationLocation={cityName => {
-              handleSearchCity(cityName);
-              showToast(`Map station selected: ${cityName}`);
-            }}
-          />
-        )}
+          {activeTab === 'map' && (
+            <ErrorBoundary viewName="Synoptic Radar Map">
+              <MapView
+                telemetry={telemetry}
+                onSelectStationLocation={(cityName, coords) => {
+                  if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
+                    fetchAndSetWeather(coords.lat, coords.lng, cityName);
+                  } else {
+                    handleSearchCity(cityName);
+                  }
+                  showToast(`Map station synchronized: ${cityName}`);
+                }}
+              />
+            </ErrorBoundary>
+          )}
 
-        {activeTab === 'risk' && <RiskView telemetry={telemetry} />}
+          {activeTab === 'risk' && (
+            <ErrorBoundary viewName="Atmospheric Risk Matrix">
+              <RiskView telemetry={telemetry} />
+            </ErrorBoundary>
+          )}
 
-        {activeTab === 'farmer' && <FarmerView telemetry={telemetry} />}
+          {activeTab === 'farmer' && (
+            <ErrorBoundary viewName="Agro-Meteorology Hub">
+              <FarmerView telemetry={telemetry} />
+            </ErrorBoundary>
+          )}
 
-        {activeTab === 'disaster' && <DisasterView telemetry={telemetry} />}
+          {activeTab === 'disaster' && (
+            <ErrorBoundary viewName="Disaster & River Basin Response">
+              <DisasterView telemetry={telemetry} />
+            </ErrorBoundary>
+          )}
 
-        {activeTab === 'twin' && <TwinView telemetry={telemetry} />}
+          {(activeTab === 'twin' || activeTab === 'twinview') && (
+            <ErrorBoundary viewName="Indigenous Climate Twin">
+              <IndigenousTwinView
+                telemetry={telemetry}
+                onNavigateTab={setActiveTab}
+              />
+            </ErrorBoundary>
+          )}
+        </ErrorBoundary>
       </main>
 
       {/* Floating Bottom Navigation Bar + Ask WeatherGPT Pill */}

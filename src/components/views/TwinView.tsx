@@ -8,13 +8,15 @@ import {
   HelpCircle,
   PlusCircle,
   Eye,
+  ArrowRight,
 } from 'lucide-react';
 
 interface TwinViewProps {
   telemetry: WeatherTelemetry;
+  onOpenTwinView?: () => void;
 }
 
-export const TwinView: React.FC<TwinViewProps> = ({ telemetry }) => {
+export const TwinView: React.FC<TwinViewProps> = ({ telemetry, onOpenTwinView }) => {
   const [selectedBioSignal, setSelectedBioSignal] = useState<string>('dragonfly');
   const [userObservation, setUserObservation] = useState('');
   const [logSuccess, setLogSuccess] = useState(false);
@@ -85,16 +87,28 @@ export const TwinView: React.FC<TwinViewProps> = ({ telemetry }) => {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-teal-200 bg-white p-3.5 dark:border-teal-800 dark:bg-zinc-900 text-right shrink-0">
-            <span className="text-[10px] uppercase font-bold text-zinc-400 block">
-              Consensus Index
-            </span>
-            <span className="text-2xl font-black text-teal-600 dark:text-teal-400">
-              89% Match
-            </span>
-            <span className="text-[10px] block font-semibold text-zinc-500">
-              Model & Traditional Convergence
-            </span>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className="rounded-2xl border border-teal-200 bg-white p-3.5 dark:border-teal-800 dark:bg-zinc-900 text-right w-full sm:w-auto">
+              <span className="text-[10px] uppercase font-bold text-zinc-400 block">
+                Consensus Index
+              </span>
+              <span className="text-2xl font-black text-teal-600 dark:text-teal-400">
+                89% Match
+              </span>
+              <span className="text-[10px] block font-semibold text-zinc-500">
+                Model & Traditional Convergence
+              </span>
+            </div>
+            {onOpenTwinView && (
+              <button
+                onClick={onOpenTwinView}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition shadow-xs"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Open 3-Section TwinView</span>
+                <ArrowRight className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
       </div>
